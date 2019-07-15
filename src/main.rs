@@ -64,7 +64,16 @@ fn main() {
         let tag = tag.unwrap();
         let tag_re = std::sync::Arc::new(Regex::new(&format!(r"^(\d+),{}$", tag)).unwrap());
 
-        let handles: Vec<_> = ["tagaa", "tagab", "tagac", "tagad"].iter().map(|s| {
+        let handles: Vec<_> = [
+            "tagaa",
+            "tagab",
+            "tagac",
+            "tagad",
+            "tagae",
+            "tagaf",
+            "tagag",
+            "tagah",
+        ].iter().map(|s| {
             let tag_re_cp = tag_re.clone();
             thread::spawn(move || get_id(&s, &tag_re_cp))
         }).collect();
@@ -79,7 +88,16 @@ fn main() {
     {
         let res: Arc<RwLock<Vec<_>>> = Arc::new(RwLock::new(ids.iter().map(|s| Regex::new(&format!(r"^{},", s)).unwrap()).collect()));
 
-        let handles: Vec<_> = ["geotagaa", "geotagab", "geotagac", "geotagad"].iter().map(|s| {
+        let handles: Vec<_> = [
+            "geotagaa",
+            "geotagab",
+            "geotagac",
+            "geotagad",
+            "geotagae",
+            "geotagaf",
+            "geotagag",
+            "geotagah"
+        ].iter().map(|s| {
             let res_cp = res.clone();
             thread::spawn(move || get_info(&s, &res_cp))
         }).collect();
