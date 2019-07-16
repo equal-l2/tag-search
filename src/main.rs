@@ -109,10 +109,17 @@ fn query(q: web::Query<QueryWrap>) -> String {
 
 fn main() {
     let _ = BASE_DIR.set(std::env::args().nth(1).unwrap());
-    let _ = TAGS.set(load_tags("tag_pp.csv"));
+    println!("Now loading... (Wait patiently)");
+    let now = std::time::Instant::now();
+    let h1 = std::thread::spawn(||TAGS.set(load_tags("tag_pp.csv")));
+    let h2 = std::thread::spawn(||GEOTAGS.set(load_geotags("geotag_pp.csv")));
+    h1.join().unwrap();
+    h2.join().unwrap();
+    println!("Load complete, elapsed time : {}[s]", (now.elapsed().as_millis() as f64)/1000f64);
     println!("Tags size : {}", TAGS.get().unwrap().len());
-    let _ = GEOTAGS.set(load_geotags("geotag_pp.csv"));
     println!("Geotags size : {}", GEOTAGS.get().unwrap().len());
+
+    println!("Server listening at \"127.0.0.1:8080\"");
     let _ = actix_web::HttpServer::new(|| {
         actix_web::App::new().service(web::resource("query.html").to(query))
     })
