@@ -8,6 +8,14 @@ edition = "2018"
 
 [dependencies]
 regex = "*"
+serde = "*"
+serde_derive = "*"
+serde_json = "*"
+chrono = "*"
+once_cell = "*"
+actix-web = "*"
+failure = "*"
+rustc-hash = "*"
 
 [profile.release]
 lto = true
