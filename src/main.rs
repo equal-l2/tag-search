@@ -2,54 +2,22 @@ use actix_web::web;
 use chrono::NaiveDateTime;
 use failure::Fallible;
 use once_cell::sync::OnceCell;
-use regex::Regex;
 use rustc_hash::FxHashMap;
 use serde_derive::Deserialize;
 use std::io::BufRead;
+use tag_geotag::*;
 
-const URL_PREFIX: &str = "http://farm";
-const URL_COMMON: &str = ".static.flickr.com/";
-const URL_SUFFIX: &str = ".jpg";
 const TAGS_SIZE: usize = 860621;
-const GEOTAGS_SIZE: usize = 10397271;
-
-struct GeoTag {
-    time: NaiveDateTime,
-    latitude: f64,
-    longitude: f64,
-    serv_num: char,
-    url_part: String,
-}
-
-impl std::fmt::Display for GeoTag {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "\"{}\",{},{},{}{}{}{}{}",
-            self.time,
-            self.latitude,
-            self.longitude,
-            URL_PREFIX,
-            self.serv_num,
-            URL_COMMON,
-            self.url_part,
-            URL_SUFFIX
-        )
-    }
-}
+const GEOTAGS_SIZE: usize = 6145483;
 
 static TAGS: OnceCell<FxHashMap<String, Vec<u64>>> = OnceCell::new();
 static GEOTAGS: OnceCell<FxHashMap<u64, GeoTag>> = OnceCell::new();
-static URL_REGEX: OnceCell<Regex> = OnceCell::new();
 static BASE_DIR: OnceCell<String> = OnceCell::new();
 
 fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
     let mut s = s.split(',');
     let id: u64 = s.next().ok_or(failure::err_msg("Id missing"))?.parse()?;
-    let time: NaiveDateTime = {
-        let s: &str = s.next().ok_or(failure::err_msg("Time missing"))?;
-        NaiveDateTime::parse_from_str(s, "\"%Y-%m-%d %H:%M:%S\"")?
-    };
+    let time: NaiveDateTime = s.next().ok_or(failure::err_msg("Time missing"))?.parse()?;
     let latitude: f64 = s
         .next()
         .ok_or(failure::err_msg("Latitude missing"))?
@@ -58,27 +26,16 @@ fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
         .next()
         .ok_or(failure::err_msg("Longitude missing"))?
         .parse()?;
-    let (serv_num, url_part) = {
-        let url: &str = s.next().ok_or(failure::err_msg("Url missing"))?;
-        let cap = URL_REGEX
-            .get()
-            .unwrap()
-            .captures(&url)
-            .ok_or(failure::err_msg("Invalid String"))?;
-        let serv_num: char = cap
-            .get(1)
-            .ok_or(failure::err_msg("Serv_num missing"))?
-            .as_str()
-            .chars()
-            .nth(0)
-            .ok_or(failure::err_msg("Invalid String"))?;
-        let url_part: String = cap
-            .get(2)
-            .ok_or(failure::err_msg("Url_part missing"))?
-            .as_str()
-            .to_owned();
-        (serv_num, url_part)
-    };
+    let serv_num: char = s
+        .next()
+        .ok_or(failure::err_msg("Serv_num missing"))?
+        .chars()
+        .nth(0)
+        .ok_or(failure::err_msg("Invalid String"))?;
+    let url_part: String = s
+        .next()
+        .ok_or(failure::err_msg("Url_part missing"))?
+        .to_owned();
 
     Ok((
         id,
@@ -94,23 +51,22 @@ fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
 
 fn load_tags(filename: &str) -> FxHashMap<String, Vec<u64>> {
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
-    let mut r = std::io::BufReader::new(f);
+    let r = std::io::BufReader::new(f);
 
     let mut tags = FxHashMap::with_capacity_and_hasher(TAGS_SIZE, Default::default());
-    let mut buf = String::new();
-    while r.read_line(&mut buf).unwrap() != 0 {
-        if buf.ends_with('\n') {
-            buf.pop();
+    // Note that tag_pp.csv has "NO_TAG" at the first line
+    for s in r.lines().skip(1) {
+        let mut s = s.unwrap();
+        if s.ends_with('\n') {
+            s.pop();
         }
-        let mut s = buf.split(',');
-        let id = s.next().unwrap();
-        let key = s.next().unwrap();
-        if !key.is_empty() {
-            tags.entry(key.to_owned())
-                .or_insert_with(Vec::new)
-                .push(id.parse::<u64>().unwrap());
-        }
-        buf.clear();
+        let mut sp = s.split(',');
+        let key = sp.next().unwrap();
+        // skip the size column
+        tags.insert(
+            key.to_owned(),
+            sp.skip(1).map(|s| s.parse().unwrap()).collect::<Vec<_>>(),
+        );
     }
 
     for v in tags.values_mut() {
@@ -121,21 +77,16 @@ fn load_tags(filename: &str) -> FxHashMap<String, Vec<u64>> {
 
 fn load_geotags(filename: &str) -> FxHashMap<u64, GeoTag> {
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
-    let mut r = std::io::BufReader::new(f);
+    let r = std::io::BufReader::new(f);
 
     let mut geotags = FxHashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
-    let mut buf = String::new();
-    while r.read_line(&mut buf).unwrap() != 0 {
-        if buf.ends_with('\n') {
-            buf.pop();
+    for s in r.lines() {
+        let mut s = s.unwrap();
+        if s.ends_with('\n') {
+            s.pop();
         }
-        match from_str_to_geotag(&buf) {
-            Ok(i) => {
-                let _ = geotags.insert(i.0, i.1);
-            }
-            Err(i) => println!("Ignored because {}: {}", i, buf),
-        }
-        buf.clear();
+        let ret = from_str_to_geotag(&s).unwrap();
+        geotags.insert(ret.0, ret.1);
     }
     geotags
 }
@@ -158,16 +109,9 @@ fn query(q: web::Query<QueryWrap>) -> String {
 
 fn main() {
     let _ = BASE_DIR.set(std::env::args().nth(1).unwrap());
-    let _ = URL_REGEX.set(
-        Regex::new(&format!(
-            r"{}(\d){}(.*){}",
-            URL_PREFIX, URL_COMMON, URL_SUFFIX
-        ))
-        .unwrap(),
-    );
-    let _ = TAGS.set(load_tags("tag.csv"));
+    let _ = TAGS.set(load_tags("tag_pp.csv"));
     println!("Tags size : {}", TAGS.get().unwrap().len());
-    let _ = GEOTAGS.set(load_geotags("geotag.csv"));
+    let _ = GEOTAGS.set(load_geotags("geotag_pp.csv"));
     println!("Geotags size : {}", GEOTAGS.get().unwrap().len());
     let _ = actix_web::HttpServer::new(|| {
         actix_web::App::new().service(web::resource("query.html").to(query))

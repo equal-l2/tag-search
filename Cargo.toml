@@ -16,6 +16,7 @@ once_cell = "*"
 actix-web = "*"
 failure = "*"
 rustc-hash = "*"
+tag-geotag = {path = "../tag-geotag"}
 
 [profile.release]
 lto = true
