@@ -1,11 +1,11 @@
 use actix_web::web;
-use chrono::NaiveDateTime;
 use failure::Fallible;
 use once_cell::sync::OnceCell;
 use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use std::io::BufRead;
 use tag_geotag::*;
+use std::sync::Arc;
 
 const TAGS_SIZE: usize = 860621;
 const GEOTAGS_SIZE: usize = 6145483;
@@ -16,26 +16,24 @@ static BASE_DIR: OnceCell<String> = OnceCell::new();
 
 fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
     let mut s = s.split(',');
-    let id: u64 = s.next().ok_or(failure::err_msg("Id missing"))?.parse()?;
-    let time: NaiveDateTime = s.next().ok_or(failure::err_msg("Time missing"))?.parse()?;
-    let latitude: f64 = s
+    let id = s.next().ok_or(failure::err_msg("Id missing"))?.parse()?;
+    let time = s.next().ok_or(failure::err_msg("Time missing"))?.parse()?;
+    let latitude = s
         .next()
         .ok_or(failure::err_msg("Latitude missing"))?
         .parse()?;
-    let longitude: f64 = s
+    let longitude = s
         .next()
         .ok_or(failure::err_msg("Longitude missing"))?
         .parse()?;
-    let serv_num: char = s
+    let domain_num = s
         .next()
         .ok_or(failure::err_msg("Serv_num missing"))?
         .chars()
         .nth(0)
         .ok_or(failure::err_msg("Invalid String"))?;
-    let url_part: String = s
-        .next()
-        .ok_or(failure::err_msg("Url_part missing"))?
-        .to_owned();
+    let url_num1 = s.next().ok_or(failure::err_msg("Url_num1 missing"))?.parse()?;
+    let url_num2 = u64::from_str_radix(s.next().ok_or(failure::err_msg("Url_num2 missing"))?, 16)?;
 
     Ok((
         id,
@@ -43,8 +41,9 @@ fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
             time,
             latitude,
             longitude,
-            serv_num,
-            url_part,
+            domain_num,
+            url_num1,
+            url_num2,
         },
     ))
 }
@@ -76,16 +75,17 @@ fn load_tags(filename: &str) -> FxHashMap<String, Vec<u64>> {
 }
 
 fn load_geotags(filename: &str) -> FxHashMap<u64, GeoTag> {
+    let mut geotags = FxHashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
+
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
     let r = std::io::BufReader::new(f);
 
-    let mut geotags = FxHashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
     for s in r.lines() {
         let mut s = s.unwrap();
         if s.ends_with('\n') {
             s.pop();
         }
-        let ret = from_str_to_geotag(&s).unwrap();
+        let ret = from_str_to_geotag(&s).expect(&s);
         geotags.insert(ret.0, ret.1);
     }
     geotags
@@ -99,7 +99,7 @@ struct QueryWrap {
 fn query(q: web::Query<QueryWrap>) -> String {
     if let Some(i) = TAGS.get().unwrap().get(&q.tag) {
         i.iter()
-            .map(|id| format!("{},{}\n", id, GEOTAGS.get().unwrap()[id]))
+            .map(|id| GEOTAGS.get().unwrap()[id].to_csv_row(*id))
             .collect::<Vec<_>>()
             .join("")
     } else {
@@ -114,10 +114,10 @@ fn main() {
     let h1 = std::thread::spawn(||TAGS.set(load_tags("tag_pp.csv")));
     let h2 = std::thread::spawn(||GEOTAGS.set(load_geotags("geotag_pp.csv")));
     h1.join().unwrap();
-    h2.join().unwrap();
-    println!("Load complete, elapsed time : {}[s]", (now.elapsed().as_millis() as f64)/1000f64);
     println!("Tags size : {}", TAGS.get().unwrap().len());
+    h2.join().unwrap();
     println!("Geotags size : {}", GEOTAGS.get().unwrap().len());
+    println!("Load complete, elapsed time : {}[s]", (now.elapsed().as_millis() as f64)/1000f64);
 
     println!("Server listening at \"127.0.0.1:8080\"");
     let _ = actix_web::HttpServer::new(|| {
