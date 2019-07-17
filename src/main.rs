@@ -3,7 +3,7 @@ use chrono::NaiveDateTime;
 use failure::Fallible;
 use once_cell::sync::OnceCell;
 use rustc_hash::FxHashMap;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use std::io::BufRead;
 use tag_geotag::*;
 

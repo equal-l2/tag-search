@@ -8,15 +8,26 @@ edition = "2018"
 
 [dependencies]
 regex = "*"
-serde = "*"
-serde_derive = "*"
-serde_json = "*"
 chrono = "*"
 once_cell = "*"
-actix-web = "*"
-failure = "*"
 rustc-hash = "*"
 tag-geotag = {path = "../tag-geotag"}
 
+[dependencies.serde]
+version = "*"
+default-features = false
+features = ["std", "derive"]
+
+[dependencies.actix-web]
+version = "*"
+default-features = false
+
+[dependencies.failure]
+version = "*"
+default-features = false
+features = ["std"]
+
 [profile.release]
 lto = true
+opt-level = 3
+codegen-units = 1
