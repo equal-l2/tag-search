@@ -5,7 +5,6 @@ use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use std::io::BufRead;
 use tag_geotag::*;
-use std::sync::Arc;
 
 const TAGS_SIZE: usize = 860621;
 const GEOTAGS_SIZE: usize = 6145483;
@@ -32,7 +31,10 @@ fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
         .chars()
         .nth(0)
         .ok_or(failure::err_msg("Invalid String"))?;
-    let url_num1 = s.next().ok_or(failure::err_msg("Url_num1 missing"))?.parse()?;
+    let url_num1 = s
+        .next()
+        .ok_or(failure::err_msg("Url_num1 missing"))?
+        .parse()?;
     let url_num2 = u64::from_str_radix(s.next().ok_or(failure::err_msg("Url_num2 missing"))?, 16)?;
 
     Ok((
@@ -98,8 +100,14 @@ struct QueryWrap {
 
 fn query(q: web::Query<QueryWrap>) -> String {
     if let Some(i) = TAGS.get().unwrap().get(&q.tag) {
-        i.iter()
-            .map(|id| GEOTAGS.get().unwrap()[id].to_csv_row(*id))
+        let mut v = i
+            .iter()
+            .map(|id| (id, &GEOTAGS.get().unwrap()[id]))
+            .collect::<Vec<_>>();
+        v.sort_unstable_by(|a, b| a.1.time.cmp(&b.1.time).reverse());
+        v.into_iter()
+            .take(100)
+            .map(|t| t.1.to_csv_row(*t.0))
             .collect::<Vec<_>>()
             .join("")
     } else {
@@ -111,19 +119,23 @@ fn main() {
     let _ = BASE_DIR.set(std::env::args().nth(1).unwrap());
     println!("Now loading... (Wait patiently)");
     let now = std::time::Instant::now();
-    let h1 = std::thread::spawn(||TAGS.set(load_tags("tag_pp.csv")));
-    let h2 = std::thread::spawn(||GEOTAGS.set(load_geotags("geotag_pp.csv")));
-    h1.join().unwrap();
+    let h1 = std::thread::spawn(|| TAGS.set(load_tags("tag_pp.csv")));
+    let h2 = std::thread::spawn(|| GEOTAGS.set(load_geotags("geotag_pp.csv")));
+    h1.join().unwrap().unwrap();
     println!("Tags size : {}", TAGS.get().unwrap().len());
-    h2.join().unwrap();
+    h2.join().unwrap().unwrap();
     println!("Geotags size : {}", GEOTAGS.get().unwrap().len());
-    println!("Load complete, elapsed time : {}[s]", (now.elapsed().as_millis() as f64)/1000f64);
+    println!(
+        "Load complete, elapsed time : {}[s]",
+        (now.elapsed().as_millis() as f64) / 1000f64
+    );
 
-    println!("Server listening at \"127.0.0.1:8080\"");
+    let bind_addr = "0.0.0.0:8080";
+    println!("Server listening at '{}'", bind_addr);
     let _ = actix_web::HttpServer::new(|| {
         actix_web::App::new().service(web::resource("query.html").to(query))
     })
-    .bind("127.0.0.1:8080")
+    .bind(bind_addr)
     .unwrap()
     .run();
 }
