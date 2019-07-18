@@ -117,7 +117,10 @@ fn query(q: web::Query<QueryWrap>) -> String {
 }
 
 fn main() {
-    let _ = BASE_DIR.set(std::env::args().nth(1).unwrap());
+    let mut args = std::env::args().skip(1);
+    let _ = BASE_DIR.set(args.next().unwrap());
+    let worker_num = args.next().expect("2nd arg missing").parse().expect("2nd arg must be a number");
+
     println!("Now loading... (Wait patiently)");
     let now = std::time::Instant::now();
     let h1 = std::thread::spawn(|| TAGS.set(load_tags("tag_pp.csv")));
@@ -136,6 +139,7 @@ fn main() {
     let _ = actix_web::HttpServer::new(|| {
         actix_web::App::new().service(web::resource("query.html").to(query))
     })
+    .workers(worker_num)
     .bind(bind_addr)
     .unwrap()
     .run();
