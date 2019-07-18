@@ -1,16 +1,17 @@
 use actix_web::web;
 use failure::Fallible;
 use once_cell::sync::OnceCell;
-use rustc_hash::FxHashMap;
 use serde::Deserialize;
 use std::io::BufRead;
 use tag_geotag::*;
 
+type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
+
 const TAGS_SIZE: usize = 860621;
 const GEOTAGS_SIZE: usize = 6145483;
 
-static TAGS: OnceCell<FxHashMap<String, Vec<u64>>> = OnceCell::new();
-static GEOTAGS: OnceCell<FxHashMap<u64, GeoTag>> = OnceCell::new();
+static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
+static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
 static BASE_DIR: OnceCell<String> = OnceCell::new();
 
 fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
@@ -50,11 +51,11 @@ fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
     ))
 }
 
-fn load_tags(filename: &str) -> FxHashMap<String, Vec<u64>> {
+fn load_tags(filename: &str) -> HashMap<String, Vec<u64>> {
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
     let r = std::io::BufReader::new(f);
 
-    let mut tags = FxHashMap::with_capacity_and_hasher(TAGS_SIZE, Default::default());
+    let mut tags = HashMap::with_capacity_and_hasher(TAGS_SIZE, Default::default());
     // Note that tag_pp.csv has "NO_TAG" at the first line
     for s in r.lines().skip(1) {
         let mut s = s.unwrap();
@@ -76,8 +77,8 @@ fn load_tags(filename: &str) -> FxHashMap<String, Vec<u64>> {
     tags
 }
 
-fn load_geotags(filename: &str) -> FxHashMap<u64, GeoTag> {
-    let mut geotags = FxHashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
+fn load_geotags(filename: &str) -> HashMap<u64, GeoTag> {
+    let mut geotags = HashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
 
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
     let r = std::io::BufReader::new(f);

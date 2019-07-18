@@ -26,8 +26,3 @@ default-features = false
 version = "*"
 default-features = false
 features = ["std"]
-
-[profile.release]
-lto = true
-opt-level = 3
-codegen-units = 1
