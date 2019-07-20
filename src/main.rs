@@ -11,6 +11,8 @@ type HashMap<K, V> = load::HashMap<K, V>;
 static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
 static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
 const ENTRY_COUNT: usize = 100;
+
+// This SHOULD be equal or more than ENTRY_COUNT
 const STRATEGY_BORDER: usize = 5000;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -46,6 +48,7 @@ impl<'a> PartialEq for DataPair<'a> {
 fn query(q: web::Query<QueryWrap>) -> String {
     if let Some(i) = TAGS.get().unwrap().get(&q.tag) {
         if i.len() < STRATEGY_BORDER {
+            // fetch all data, sort them, and take the needed elements
             let mut v = i
                 .into_iter()
                 .map(|id| DataPair {
@@ -59,7 +62,9 @@ fn query(q: web::Query<QueryWrap>) -> String {
                 .map(|t| t.geotag.to_csv_row(t.id))
                 .collect::<Vec<_>>()
         } else {
-            i.into_iter()
+            // fetch data, put it into the heap, then take all and sort them
+            let mut v = i
+                .into_iter()
                 .map(|id| DataPair {
                     id: *id,
                     geotag: &GEOTAGS.get().unwrap()[id],
@@ -78,7 +83,11 @@ fn query(q: web::Query<QueryWrap>) -> String {
                     },
                 )
                 .into_iter()
-                .map(|t| t.0.geotag.to_csv_row(t.0.id))
+                .map(|t| t.0)
+                .collect::<Vec<_>>();
+            v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
+            v.into_iter()
+                .map(|t| t.geotag.to_csv_row(t.id))
                 .collect::<Vec<_>>()
         }
         .join("")
