@@ -1,78 +1,87 @@
 use actix_web::web;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
-use std::io::BufRead;
+use std::collections::BinaryHeap;
 use tag_geotag::*;
 
-type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
+mod load;
 
-const TAGS_SIZE: usize = 860621;
-const GEOTAGS_SIZE: usize = 6145483;
+type HashMap<K, V> = load::HashMap<K, V>;
 
 static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
 static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
-static BASE_DIR: OnceCell<String> = OnceCell::new();
-
-fn load_tags(filename: &str) -> HashMap<String, Vec<u64>> {
-    let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
-    let r = std::io::BufReader::new(f);
-
-    let mut tags = HashMap::with_capacity_and_hasher(TAGS_SIZE, Default::default());
-    // Note that tag_pp.csv has "NO_TAG" at the first line
-    for s in r.lines().skip(1) {
-        let mut s = s.unwrap();
-        if s.ends_with('\n') {
-            s.pop();
-        }
-        let mut sp = s.split(',');
-        let key = sp.next().unwrap();
-        // skip the size column
-        tags.insert(
-            key.to_owned(),
-            sp.skip(1).map(|s| s.parse().unwrap()).collect::<Vec<_>>(),
-        );
-    }
-
-    for v in tags.values_mut() {
-        v.sort();
-    }
-    tags
-}
-
-fn load_geotags(filename: &str) -> HashMap<u64, GeoTag> {
-    let mut geotags = HashMap::with_capacity_and_hasher(GEOTAGS_SIZE, Default::default());
-
-    let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
-    let r = std::io::BufReader::new(f);
-
-    for s in r.lines() {
-        let mut s = s.unwrap();
-        if s.ends_with('\n') {
-            s.pop();
-        }
-        let ret = GeoTag::from_str_to_geotag(&s).expect(&s);
-        geotags.insert(ret.0, ret.1);
-    }
-    geotags
-}
+const ENTRY_COUNT: usize = 100;
+const STRATEGY_BORDER: usize = 5000;
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct QueryWrap {
     tag: String,
 }
 
+struct DataPair<'a> {
+    id: u64,
+    geotag: &'a GeoTag,
+}
+
+impl<'a> Ord for DataPair<'a> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.geotag.time.cmp(&other.geotag.time)
+    }
+}
+
+impl<'a> PartialOrd for DataPair<'a> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.geotag.time.partial_cmp(&other.geotag.time)
+    }
+}
+
+impl<'a> Eq for DataPair<'a> {}
+
+impl<'a> PartialEq for DataPair<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        self.geotag.time == other.geotag.time
+    }
+}
+
 fn query(q: web::Query<QueryWrap>) -> String {
     if let Some(i) = TAGS.get().unwrap().get(&q.tag) {
-        let mut v = i
-            .iter()
-            .map(|id| (id, &GEOTAGS.get().unwrap()[id]))
-            .collect::<Vec<_>>();
-        v.sort_unstable_by(|a, b| a.1.time.cmp(&b.1.time).reverse());
-        v.into_iter()
-            .take(100)
-            .map(|t| t.1.to_csv_row(*t.0))
-            .collect::<Vec<_>>()
-            .join("")
+        if i.len() < STRATEGY_BORDER {
+            let mut v = i
+                .into_iter()
+                .map(|id| DataPair {
+                    id: *id,
+                    geotag: &GEOTAGS.get().unwrap()[id],
+                })
+                .collect::<Vec<_>>();
+            v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
+            v.into_iter()
+                .take(ENTRY_COUNT)
+                .map(|t| t.geotag.to_csv_row(t.id))
+                .collect::<Vec<_>>()
+        } else {
+            i.into_iter()
+                .map(|id| DataPair {
+                    id: *id,
+                    geotag: &GEOTAGS.get().unwrap()[id],
+                })
+                .fold(
+                    BinaryHeap::<std::cmp::Reverse<_>>::with_capacity(100),
+                    |mut heap, e| {
+                        if heap.len() == ENTRY_COUNT && e < heap.peek().unwrap().0 {
+                            return heap;
+                        }
+                        heap.push(std::cmp::Reverse(e));
+                        if heap.len() > ENTRY_COUNT {
+                            heap.pop();
+                        }
+                        heap
+                    },
+                )
+                .into_iter()
+                .map(|t| t.0.geotag.to_csv_row(t.0.id))
+                .collect::<Vec<_>>()
+        }
+        .join("")
     } else {
         "".into()
     }
@@ -80,7 +89,7 @@ fn query(q: web::Query<QueryWrap>) -> String {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let _ = BASE_DIR.set(args.next().unwrap());
+    let _ = load::BASE_DIR.set(args.next().unwrap());
     let worker_num = {
         let n = args.next();
         if n.is_none() {
@@ -102,8 +111,8 @@ fn main() {
 
     println!("Now loading... (Wait patiently)");
     let now = std::time::Instant::now();
-    let h1 = std::thread::spawn(|| TAGS.set(load_tags("tag_pp.csv")));
-    let h2 = std::thread::spawn(|| GEOTAGS.set(load_geotags("geotag_pp.csv")));
+    let h1 = std::thread::spawn(|| TAGS.set(load::load_tags("tag_pp.csv")));
+    let h2 = std::thread::spawn(|| GEOTAGS.set(load::load_geotags("geotag_pp.csv")));
     h1.join().unwrap().unwrap();
     println!("Tags size : {}", TAGS.get().unwrap().len());
     h2.join().unwrap().unwrap();
