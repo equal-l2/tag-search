@@ -1,5 +1,4 @@
 use actix_web::web;
-use failure::Fallible;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use std::io::BufRead;
@@ -13,43 +12,6 @@ const GEOTAGS_SIZE: usize = 6145483;
 static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
 static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
 static BASE_DIR: OnceCell<String> = OnceCell::new();
-
-fn from_str_to_geotag(s: &str) -> Fallible<(u64, GeoTag)> {
-    let mut s = s.split(',');
-    let id = s.next().ok_or(failure::err_msg("Id missing"))?.parse()?;
-    let time = s.next().ok_or(failure::err_msg("Time missing"))?.parse()?;
-    let latitude = s
-        .next()
-        .ok_or(failure::err_msg("Latitude missing"))?
-        .parse()?;
-    let longitude = s
-        .next()
-        .ok_or(failure::err_msg("Longitude missing"))?
-        .parse()?;
-    let domain_num = s
-        .next()
-        .ok_or(failure::err_msg("Serv_num missing"))?
-        .chars()
-        .nth(0)
-        .ok_or(failure::err_msg("Invalid String"))?;
-    let url_num1 = s
-        .next()
-        .ok_or(failure::err_msg("Url_num1 missing"))?
-        .parse()?;
-    let url_num2 = u64::from_str_radix(s.next().ok_or(failure::err_msg("Url_num2 missing"))?, 16)?;
-
-    Ok((
-        id,
-        GeoTag {
-            time,
-            latitude,
-            longitude,
-            domain_num,
-            url_num1,
-            url_num2,
-        },
-    ))
-}
 
 fn load_tags(filename: &str) -> HashMap<String, Vec<u64>> {
     let f = std::fs::File::open(&format!("{}/{}", BASE_DIR.get().unwrap(), filename)).unwrap();
@@ -88,7 +50,7 @@ fn load_geotags(filename: &str) -> HashMap<u64, GeoTag> {
         if s.ends_with('\n') {
             s.pop();
         }
-        let ret = from_str_to_geotag(&s).expect(&s);
+        let ret = GeoTag::from_str_to_geotag(&s).expect(&s);
         geotags.insert(ret.0, ret.1);
     }
     geotags
@@ -119,7 +81,24 @@ fn query(q: web::Query<QueryWrap>) -> String {
 fn main() {
     let mut args = std::env::args().skip(1);
     let _ = BASE_DIR.set(args.next().unwrap());
-    let worker_num = args.next().expect("2nd arg missing").parse().expect("2nd arg must be a number");
+    let worker_num = {
+        let n = args.next();
+        if n.is_none() {
+            let n_cpu = num_cpus::get();
+            println!("Worker count unspecified, use {} worker(s)", n_cpu);
+            n_cpu
+        } else {
+            let n = n.unwrap().parse().expect("2nd arg must be a number");
+            if n == 0 {
+                let n_cpu = num_cpus::get();
+                println!("workers unspecified, use {} worker(s)", n_cpu);
+                n_cpu
+            } else {
+                println!("Use {} worker(s)", n);
+                n
+            }
+        }
+    };
 
     println!("Now loading... (Wait patiently)");
     let now = std::time::Instant::now();

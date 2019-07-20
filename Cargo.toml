@@ -11,6 +11,7 @@ regex = "*"
 chrono = "*"
 once_cell = "*"
 rustc-hash = "*"
+num_cpus = "*"
 tag-geotag = {path = "../tag-geotag"}
 
 [dependencies.serde]
@@ -21,8 +22,3 @@ features = ["std", "derive"]
 [dependencies.actix-web]
 version = "*"
 default-features = false
-
-[dependencies.failure]
-version = "*"
-default-features = false
-features = ["std"]
