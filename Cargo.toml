@@ -12,6 +12,7 @@ chrono = "*"
 once_cell = "*"
 rustc-hash = "*"
 num_cpus = "*"
+parking_lot = "*"
 tag-geotag = {path = "../tag-geotag"}
 
 [dependencies.serde]
