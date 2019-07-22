@@ -4,7 +4,10 @@ mod structs;
 use actix_web::web;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
+use serde::Deserialize;
+use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
+
 use structs::*;
 
 type HashMap<K, V> = load::HashMap<K, V>;
@@ -28,58 +31,119 @@ fn get_cache(tag: &str) -> Option<String> {
         .map(|cw| cw.content.clone())
 }
 
+#[derive(Deserialize, Clone, Debug)]
+struct QueryWrap {
+    tag: String,
+    cache: Option<bool>,
+    strat: Option<SortStrategy>,
+}
+
+#[serde(rename_all = "kebab-case")]
+#[derive(Deserialize, Debug, Clone, Copy)]
+enum SortStrategy {
+    VecSort,
+    HeapPushPop,
+    HeapPeek,
+}
+
 fn query(q: web::Query<QueryWrap>) -> String {
     let tag = &q.tag;
+    let use_cache = q.cache.unwrap_or(true);
 
-    if let Some(i) = get_cache(tag) {
-        return i;
+    if use_cache {
+        if let Some(i) = get_cache(tag) {
+            return i;
+        }
     }
 
     if let Some(i) = TAGS.get().unwrap().get(tag) {
-        let s = if i.len() < STRATEGY_BORDER {
-            // fetch all data, sort them, and take the needed elements
-            let mut v = i
-                .into_iter()
-                .map(|id| DataPair {
-                    id: *id,
-                    geotag: &GEOTAGS.get().unwrap()[id],
-                })
-                .collect::<Vec<_>>();
-            v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
-            v.into_iter()
-                .take(ENTRY_COUNT)
-                .map(|t| t.geotag.to_csv_row(t.id))
-                .collect::<Vec<_>>()
-        } else {
-            // fetch data, put it into the heap, then take all and sort them
-            i.into_iter()
-                .map(|id| DataPair {
-                    id: *id,
-                    geotag: &GEOTAGS.get().unwrap()[id],
-                })
-                .fold(
-                    BinaryHeap::<std::cmp::Reverse<_>>::with_capacity(100),
-                    |mut heap, e| {
-                        if heap.len() == ENTRY_COUNT && e < heap.peek().unwrap().0 {
-                            return heap;
-                        }
-                        heap.push(std::cmp::Reverse(e));
-                        if heap.len() > ENTRY_COUNT {
-                            heap.pop();
-                        }
-                        heap
-                    },
-                )
-                .into_sorted_vec()
-                .into_iter()
-                .map(|t| t.0.geotag.to_csv_row(t.0.id))
-                .collect::<Vec<_>>()
+        let strat = q.strat.unwrap_or_else(|| {
+            if i.len() < STRATEGY_BORDER {
+                SortStrategy::VecSort
+            } else {
+                SortStrategy::HeapPushPop
+            }
+        });
+
+        let s = match strat {
+            SortStrategy::VecSort => {
+                // fetch all data, sort them, and take the needed elements
+                let mut v = i
+                    .into_iter()
+                    .map(|id| DataPair {
+                        id: *id,
+                        geotag: &GEOTAGS.get().unwrap()[id],
+                    })
+                    .collect::<Vec<_>>();
+                v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
+                v.into_iter()
+                    .take(ENTRY_COUNT)
+                    .map(|t| t.geotag.to_csv_row(t.id))
+                    .collect::<Vec<_>>()
+            }
+            SortStrategy::HeapPushPop => {
+                // fetch data, put it into the heap, then take all and sort them
+                i.into_iter()
+                    .map(|id| DataPair {
+                        id: *id,
+                        geotag: &GEOTAGS.get().unwrap()[id],
+                    })
+                    .fold(
+                        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
+                        |mut heap, e| {
+                            if heap.len() == ENTRY_COUNT && e < heap.peek().unwrap().0 {
+                                return heap;
+                            }
+                            heap.push(Reverse(e));
+                            if heap.len() > ENTRY_COUNT {
+                                heap.pop();
+                            }
+                            heap
+                        },
+                    )
+                    .into_sorted_vec()
+                    .into_iter()
+                    .map(|t| t.0.geotag.to_csv_row(t.0.id))
+                    .collect::<Vec<_>>()
+            }
+            SortStrategy::HeapPeek => {
+                // fetch data, put it into the heap, then take all and sort them
+                i.into_iter()
+                    .map(|id| DataPair {
+                        id: *id,
+                        geotag: &GEOTAGS.get().unwrap()[id],
+                    })
+                    .fold(
+                        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
+                        |mut heap, e| {
+                            if heap.len() == ENTRY_COUNT {
+                                let mut top = heap.peek_mut().unwrap();
+                                if e >= top.0 {
+                                    *top = Reverse(e);
+                                }
+                            } else {
+                                heap.push(Reverse(e));
+                            }
+                            heap
+                        },
+                    )
+                    .into_sorted_vec()
+                    .into_iter()
+                    .map(|t| t.0.geotag.to_csv_row(t.0.id))
+                    .collect::<Vec<_>>()
+            }
         }
         .join("");
-        CACHE.write().push_back(CacheWrap {
-            tag: tag.clone(),
-            content: s.clone(),
-        });
+        if use_cache {
+            let mut cache = CACHE.write();
+            if cache.len() >= CACHE_LENGTH {
+                cache.pop_front();
+            }
+            cache.push_back(CacheWrap {
+                tag: tag.clone(),
+                content: s.clone(),
+            });
+        }
         return s;
     }
 

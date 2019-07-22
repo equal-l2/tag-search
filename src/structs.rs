@@ -1,10 +1,4 @@
-use serde::Deserialize;
 use tag_geotag::GeoTag;
-
-#[derive(Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct QueryWrap {
-    pub tag: String,
-}
 
 pub struct DataPair<'a> {
     pub id: u64,
