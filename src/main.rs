@@ -91,7 +91,7 @@ fn query(q: web::Query<QueryWrap>) -> String {
                     .fold(
                         BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
                         |mut heap, e| {
-                            if heap.len() == ENTRY_COUNT && e < heap.peek().unwrap().0 {
+                            if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
                                 return heap;
                             }
                             heap.push(Reverse(e));
@@ -118,7 +118,7 @@ fn query(q: web::Query<QueryWrap>) -> String {
                         |mut heap, e| {
                             if heap.len() == ENTRY_COUNT {
                                 let mut top = heap.peek_mut().unwrap();
-                                if e >= top.0 {
+                                if e > top.0 {
                                     *top = Reverse(e);
                                 }
                             } else {
