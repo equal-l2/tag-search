@@ -1,7 +1,7 @@
 mod load;
 mod structs;
 
-use actix_web::web;
+use actix_web::{web, HttpResponse};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
 use serde::Deserialize;
@@ -9,11 +9,12 @@ use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
 
 use structs::*;
+use tag_geotag::*;
 
 type HashMap<K, V> = load::HashMap<K, V>;
 
 static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
-static GEOTAGS: OnceCell<HashMap<u64, tag_geotag::GeoTag>> = OnceCell::new();
+static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
 static CACHE: Lazy<RwLock<VecDeque<CacheWrap>>> =
     Lazy::new(|| RwLock::new(VecDeque::with_capacity(CACHE_LENGTH)));
 const ENTRY_COUNT: usize = 100;
@@ -27,7 +28,7 @@ fn get_cache(tag: &str) -> Option<String> {
     CACHE
         .read()
         .iter()
-        .find(|&e| &e.tag == tag)
+        .find(|e| e.tag == tag)
         .map(|cw| cw.content.clone())
 }
 
@@ -35,105 +36,86 @@ fn get_cache(tag: &str) -> Option<String> {
 struct QueryWrap {
     tag: String,
     cache: Option<bool>,
-    strat: Option<SortStrategy>,
+    strategy: Option<SortStrategy>,
 }
 
 #[serde(rename_all = "kebab-case")]
 #[derive(Deserialize, Debug, Clone, Copy)]
 enum SortStrategy {
     VecSort,
-    HeapPushPop,
-    HeapPeek,
+    Heap,
 }
 
-fn query(q: web::Query<QueryWrap>) -> String {
+fn top_n_vec_sort<'a>(ids: &[u64]) -> Vec<DataPair<'a>> {
+    // fetch all data, sort them, and take the needed elements
+    let mut v = ids
+        .iter()
+        .map(|id| DataPair {
+            id: *id,
+            geotag: &GEOTAGS.get().unwrap()[&id],
+        })
+        .collect::<Vec<_>>();
+    v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
+    v.into_iter().take(ENTRY_COUNT).collect()
+}
+
+fn top_n_heap<'a>(ids: &[u64]) -> Vec<DataPair<'a>> {
+    // fetch data, put it into the heap, then take all and sort them
+    ids.iter()
+        .map(|id| DataPair {
+            id: *id,
+            geotag: &GEOTAGS.get().unwrap()[&id],
+        })
+        .fold(
+            BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
+            |mut heap, e| {
+                if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
+                    return heap;
+                }
+                heap.push(Reverse(e));
+                if heap.len() > ENTRY_COUNT {
+                    heap.pop();
+                }
+                heap
+            },
+        )
+        .into_sorted_vec()
+        .into_iter()
+        .map(|e| e.0)
+        .collect()
+}
+
+fn generate_html(data: Vec<DataPair>) -> String {
+    data.into_iter().fold(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#.to_string(), |s, x| {
+        s + &format!("<div><img src={} alt={}><p>Latitude : {}<br>Longitude : {}<br>Shot at {}</p></div>", x.geotag.get_url(x.id), x.id, x.geotag.latitude, x.geotag.longitude, chrono::NaiveDateTime::from_timestamp(x.geotag.time as i64, 0))
+    }) + "</body></html>"
+}
+
+fn query(q: web::Query<QueryWrap>) -> HttpResponse {
     let tag = &q.tag;
     let use_cache = q.cache.unwrap_or(true);
+    let mut response = HttpResponse::Ok();
+    response.content_type("text/html");
 
     if use_cache {
-        if let Some(i) = get_cache(tag) {
-            return i;
+        if let Some(i) = get_cache(&tag) {
+            return response.body(i);
         }
     }
 
     if let Some(i) = TAGS.get().unwrap().get(tag) {
-        let strat = q.strat.unwrap_or_else(|| {
+        let strat = q.strategy.unwrap_or_else(|| {
             if i.len() < STRATEGY_BORDER {
                 SortStrategy::VecSort
             } else {
-                SortStrategy::HeapPushPop
+                SortStrategy::Heap
             }
         });
 
-        let s = match strat {
-            SortStrategy::VecSort => {
-                // fetch all data, sort them, and take the needed elements
-                let mut v = i
-                    .into_iter()
-                    .map(|id| DataPair {
-                        id: *id,
-                        geotag: &GEOTAGS.get().unwrap()[id],
-                    })
-                    .collect::<Vec<_>>();
-                v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
-                v.into_iter()
-                    .take(ENTRY_COUNT)
-                    .map(|t| t.geotag.to_csv_row(t.id))
-                    .collect::<Vec<_>>()
-            }
-            SortStrategy::HeapPushPop => {
-                // fetch data, put it into the heap, then take all and sort them
-                i.into_iter()
-                    .map(|id| DataPair {
-                        id: *id,
-                        geotag: &GEOTAGS.get().unwrap()[id],
-                    })
-                    .fold(
-                        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
-                        |mut heap, e| {
-                            if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
-                                return heap;
-                            }
-                            heap.push(Reverse(e));
-                            if heap.len() > ENTRY_COUNT {
-                                heap.pop();
-                            }
-                            heap
-                        },
-                    )
-                    .into_sorted_vec()
-                    .into_iter()
-                    .map(|t| t.0.geotag.to_csv_row(t.0.id))
-                    .collect::<Vec<_>>()
-            }
-            SortStrategy::HeapPeek => {
-                // fetch data, put it into the heap, then take all and sort them
-                i.into_iter()
-                    .map(|id| DataPair {
-                        id: *id,
-                        geotag: &GEOTAGS.get().unwrap()[id],
-                    })
-                    .fold(
-                        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
-                        |mut heap, e| {
-                            if heap.len() == ENTRY_COUNT {
-                                let mut top = heap.peek_mut().unwrap();
-                                if e > top.0 {
-                                    *top = Reverse(e);
-                                }
-                            } else {
-                                heap.push(Reverse(e));
-                            }
-                            heap
-                        },
-                    )
-                    .into_sorted_vec()
-                    .into_iter()
-                    .map(|t| t.0.geotag.to_csv_row(t.0.id))
-                    .collect::<Vec<_>>()
-            }
-        }
-        .join("");
+        let s = generate_html(match strat {
+            SortStrategy::VecSort => top_n_vec_sort(i),
+            SortStrategy::Heap => top_n_heap(i),
+        });
         if use_cache {
             let mut cache = CACHE.write();
             if cache.len() >= CACHE_LENGTH {
@@ -144,10 +126,10 @@ fn query(q: web::Query<QueryWrap>) -> String {
                 content: s.clone(),
             });
         }
-        return s;
+        return response.body(s);
     }
 
-    "".into()
+    response.body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
 }
 
 fn main() {
