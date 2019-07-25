@@ -2,41 +2,40 @@ mod load;
 mod structs;
 
 use actix_web::{web, HttpResponse};
-use once_cell::sync::{Lazy, OnceCell};
-use parking_lot::RwLock;
+use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, VecDeque};
+use std::collections::BinaryHeap;
 
 use structs::*;
 use tag_geotag::*;
+
+#[cfg(feature = "cache")]
+mod cache;
+
+#[cfg(feature = "cache")]
+const CACHE_LENGTH: usize = 100;
+
+#[cfg(feature = "cache")]
+static CACHE: once_cell::sync::Lazy<std::sync::RwLock<cache::Cache>> = once_cell::sync::Lazy::new(|| {
+    std::sync::RwLock::new(cache::Cache::new(CACHE_LENGTH))
+});
 
 type HashMap<K, V> = load::HashMap<K, V>;
 
 static TAGS: OnceCell<HashMap<String, Vec<u64>>> = OnceCell::new();
 static GEOTAGS: OnceCell<HashMap<u64, GeoTag>> = OnceCell::new();
-static CACHE: Lazy<RwLock<VecDeque<CacheWrap>>> =
-    Lazy::new(|| RwLock::new(VecDeque::with_capacity(CACHE_LENGTH)));
 const ENTRY_COUNT: usize = 100;
 
 // This SHOULD be equal or more than ENTRY_COUNT
 const STRATEGY_BORDER: usize = 5000;
 
-const CACHE_LENGTH: usize = 100;
-
-fn get_cache(tag: &str) -> Option<String> {
-    CACHE
-        .read()
-        .iter()
-        .find(|e| e.tag == tag)
-        .map(|cw| cw.content.clone())
-}
-
 #[derive(Deserialize, Clone, Debug)]
 struct QueryWrap {
     tag: String,
-    cache: Option<bool>,
     strategy: Option<SortStrategy>,
+    #[cfg(feature = "cache")]
+    cache: Option<bool>,
 }
 
 #[serde(rename_all = "kebab-case")]
@@ -93,13 +92,17 @@ fn generate_html(data: Vec<DataPair>) -> String {
 
 fn query(q: web::Query<QueryWrap>) -> HttpResponse {
     let tag = &q.tag;
-    let use_cache = q.cache.unwrap_or(true);
     let mut response = HttpResponse::Ok();
     response.content_type("text/html");
 
-    if use_cache {
-        if let Some(i) = get_cache(&tag) {
-            return response.body(i);
+    #[cfg(feature = "cache")]
+    let use_cache = q.cache.unwrap_or(true);
+    #[cfg(feature = "cache")]
+    {
+        if use_cache {
+            if let Some(i) = CACHE.read().unwrap().get_cache(&tag) {
+                return response.body(i);
+            }
         }
     }
 
@@ -116,16 +119,14 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
             SortStrategy::VecSort => top_n_vec_sort(i),
             SortStrategy::Heap => top_n_heap(i),
         });
-        if use_cache {
-            let mut cache = CACHE.write();
-            if cache.len() >= CACHE_LENGTH {
-                cache.pop_front();
+
+        #[cfg(feature = "cache")]
+        {
+            if use_cache {
+                CACHE.write().unwrap().push_cache(tag, &s);
             }
-            cache.push_back(CacheWrap {
-                tag: tag.clone(),
-                content: s.clone(),
-            });
         }
+
         return response.body(s);
     }
 

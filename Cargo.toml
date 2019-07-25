@@ -23,3 +23,7 @@ features = ["std", "derive"]
 [dependencies.actix-web]
 version = "*"
 default-features = false
+
+[features]
+default = []
+cache = []

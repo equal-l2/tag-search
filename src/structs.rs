@@ -24,8 +24,3 @@ impl<'a> PartialEq for DataPair<'a> {
         self.geotag.time == other.geotag.time
     }
 }
-
-pub struct CacheWrap {
-    pub tag: String,
-    pub content: String,
-}
