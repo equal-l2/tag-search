@@ -45,16 +45,16 @@ enum SortStrategy {
     HeapNeu,
 }
 
-fn top_n_vec_sort<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
+fn top_n_vec_sort(dp: Vec<DataPair>) -> Vec<DataPair> {
     // fetch all data, sort them, and take the needed elements
-    let mut v = dp.collect::<Vec<_>>();
-    v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
-    v.into_iter().take(ENTRY_COUNT).collect()
+    let mut dp = dp;
+    dp.sort_unstable_by(|a, b| a.cmp(&b).reverse());
+    dp.into_iter().take(ENTRY_COUNT).collect()
 }
 
-fn top_n_heap<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
+fn top_n_heap(dp: Vec<DataPair>) -> Vec<DataPair> {
     // fetch data, put it into the heap, then take all and sort them
-    dp.fold(
+    dp.into_iter().fold(
         BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
         |mut heap, e| {
             if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
@@ -73,11 +73,11 @@ fn top_n_heap<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> 
     .collect()
 }
 
-fn top_n_heap_neu<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
-    let mut dp = dp;
-    let mut heap: BinaryHeap<_> = (&mut dp).take(ENTRY_COUNT).map(Reverse).collect();
+fn top_n_heap_neu(dp: Vec<DataPair>) -> Vec<DataPair> {
+    let mut it = dp.into_iter();
+    let mut heap: BinaryHeap<_> = (&mut it).take(ENTRY_COUNT).map(Reverse).collect();
     let mut guard = &heap.peek().unwrap().0;
-    for e in dp {
+    for e in it {
         if e > *guard {
             {
                 *heap.peek_mut().unwrap() = Reverse(e);
@@ -119,15 +119,15 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
             }
         });
 
-        let it = i.iter().map(|id| DataPair {
+        let v = i.iter().map(|id| DataPair {
             id: *id,
             geotag: &GEOTAGS.get().unwrap()[&id],
-        });
+        }).collect();
 
         let s = generate_html(match strat {
-            SortStrategy::VecSort => top_n_vec_sort(it),
-            SortStrategy::Heap => top_n_heap(it),
-            SortStrategy::HeapNeu => top_n_heap_neu(it),
+            SortStrategy::VecSort => top_n_vec_sort(v),
+            SortStrategy::Heap => top_n_heap(v),
+            SortStrategy::HeapNeu => top_n_heap_neu(v),
         });
 
         #[cfg(feature = "cache")]
