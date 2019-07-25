@@ -12,7 +12,10 @@ pub struct Cache {
 
 impl Cache {
     pub fn new(capacity: usize) -> Self {
-        Cache { data: VecDeque::with_capacity(capacity), capacity: capacity }
+        Cache {
+            data: VecDeque::with_capacity(capacity),
+            capacity: capacity,
+        }
     }
 
     pub fn get_cache(&self, tag: &str) -> Option<String> {
@@ -32,4 +35,3 @@ impl Cache {
         });
     }
 }
-

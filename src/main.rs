@@ -17,9 +17,8 @@ mod cache;
 const CACHE_LENGTH: usize = 100;
 
 #[cfg(feature = "cache")]
-static CACHE: once_cell::sync::Lazy<std::sync::RwLock<cache::Cache>> = once_cell::sync::Lazy::new(|| {
-    std::sync::RwLock::new(cache::Cache::new(CACHE_LENGTH))
-});
+static CACHE: once_cell::sync::Lazy<std::sync::RwLock<cache::Cache>> =
+    once_cell::sync::Lazy::new(|| std::sync::RwLock::new(cache::Cache::new(CACHE_LENGTH)));
 
 type HashMap<K, V> = load::HashMap<K, V>;
 
@@ -43,45 +42,50 @@ struct QueryWrap {
 enum SortStrategy {
     VecSort,
     Heap,
+    HeapNeu,
 }
 
-fn top_n_vec_sort<'a>(ids: &[u64]) -> Vec<DataPair<'a>> {
+fn top_n_vec_sort<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
     // fetch all data, sort them, and take the needed elements
-    let mut v = ids
-        .iter()
-        .map(|id| DataPair {
-            id: *id,
-            geotag: &GEOTAGS.get().unwrap()[&id],
-        })
-        .collect::<Vec<_>>();
+    let mut v = dp.collect::<Vec<_>>();
     v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
     v.into_iter().take(ENTRY_COUNT).collect()
 }
 
-fn top_n_heap<'a>(ids: &[u64]) -> Vec<DataPair<'a>> {
+fn top_n_heap<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
     // fetch data, put it into the heap, then take all and sort them
-    ids.iter()
-        .map(|id| DataPair {
-            id: *id,
-            geotag: &GEOTAGS.get().unwrap()[&id],
-        })
-        .fold(
-            BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
-            |mut heap, e| {
-                if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
-                    return heap;
-                }
-                heap.push(Reverse(e));
-                if heap.len() > ENTRY_COUNT {
-                    heap.pop();
-                }
-                heap
-            },
-        )
-        .into_sorted_vec()
-        .into_iter()
-        .map(|e| e.0)
-        .collect()
+    dp.fold(
+        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
+        |mut heap, e| {
+            if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
+                return heap;
+            }
+            heap.push(Reverse(e));
+            if heap.len() > ENTRY_COUNT {
+                heap.pop();
+            }
+            heap
+        },
+    )
+    .into_sorted_vec()
+    .into_iter()
+    .map(|e| e.0)
+    .collect()
+}
+
+fn top_n_heap_neu<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
+    let mut dp = dp;
+    let mut heap: BinaryHeap<_> = (&mut dp).take(ENTRY_COUNT).map(Reverse).collect();
+    let mut guard = &heap.peek().unwrap().0;
+    for e in dp {
+        if e > *guard {
+            {
+                *heap.peek_mut().unwrap() = Reverse(e);
+            }
+            guard = &heap.peek().unwrap().0;
+        }
+    }
+    heap.into_sorted_vec().into_iter().map(|e| e.0).collect()
 }
 
 fn generate_html(data: Vec<DataPair>) -> String {
@@ -115,9 +119,15 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
             }
         });
 
+        let it = i.iter().map(|id| DataPair {
+            id: *id,
+            geotag: &GEOTAGS.get().unwrap()[&id],
+        });
+
         let s = generate_html(match strat {
-            SortStrategy::VecSort => top_n_vec_sort(i),
-            SortStrategy::Heap => top_n_heap(i),
+            SortStrategy::VecSort => top_n_vec_sort(it),
+            SortStrategy::Heap => top_n_heap(it),
+            SortStrategy::HeapNeu => top_n_heap_neu(it),
         });
 
         #[cfg(feature = "cache")]
