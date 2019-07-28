@@ -14,11 +14,14 @@ use tag_geotag::*;
 mod cache;
 
 #[cfg(feature = "cache")]
+type RwLock<T> = std::sync::RwLock<T>;
+
+#[cfg(feature = "cache")]
 const CACHE_LENGTH: usize = 100;
 
 #[cfg(feature = "cache")]
-static CACHE: once_cell::sync::Lazy<std::sync::RwLock<cache::Cache>> =
-    once_cell::sync::Lazy::new(|| std::sync::RwLock::new(cache::Cache::new(CACHE_LENGTH)));
+static CACHE: once_cell::sync::Lazy<RwLock<cache::Cache>> =
+    once_cell::sync::Lazy::new(|| RwLock::new(cache::Cache::new(CACHE_LENGTH)));
 
 type HashMap<K, V> = load::HashMap<K, V>;
 
@@ -41,7 +44,6 @@ struct QueryWrap {
 #[derive(Deserialize, Debug, Clone, Copy)]
 enum SortStrategy {
     VecSort,
-    Heap,
     HeapNeu,
 }
 
@@ -50,27 +52,6 @@ fn top_n_vec_sort<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'
     let mut v = dp.collect::<Vec<_>>();
     v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
     v.into_iter().take(ENTRY_COUNT).collect()
-}
-
-fn top_n_heap<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
-    // fetch data, put it into the heap, then take all and sort them
-    dp.fold(
-        BinaryHeap::<Reverse<_>>::with_capacity(ENTRY_COUNT),
-        |mut heap, e| {
-            if heap.len() == ENTRY_COUNT && e <= heap.peek().unwrap().0 {
-                return heap;
-            }
-            heap.push(Reverse(e));
-            if heap.len() > ENTRY_COUNT {
-                heap.pop();
-            }
-            heap
-        },
-    )
-    .into_sorted_vec()
-    .into_iter()
-    .map(|e| e.0)
-    .collect()
 }
 
 fn top_n_heap_neu<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
@@ -115,7 +96,7 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
             if i.len() < STRATEGY_BORDER {
                 SortStrategy::VecSort
             } else {
-                SortStrategy::Heap
+                SortStrategy::HeapNeu
             }
         });
 
@@ -126,7 +107,6 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
 
         let s = generate_html(match strat {
             SortStrategy::VecSort => top_n_vec_sort(it),
-            SortStrategy::Heap => top_n_heap(it),
             SortStrategy::HeapNeu => top_n_heap_neu(it),
         });
 
