@@ -47,14 +47,20 @@ enum SortStrategy {
     HeapNeu,
 }
 
-fn top_n_vec_sort<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
+fn top_n_vec_sort<'a, I>(dp: I) -> impl Iterator<Item = DataPair<'a>>
+where
+    I: Iterator<Item = DataPair<'a>>,
+{
     // fetch all data, sort them, and take the needed elements
     let mut v = dp.collect::<Vec<_>>();
     v.sort_unstable_by(|a, b| a.cmp(&b).reverse());
-    v.into_iter().take(ENTRY_COUNT).collect()
+    v.into_iter().take(ENTRY_COUNT)
 }
 
-fn top_n_heap_neu<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'a>> {
+fn top_n_heap_neu<'a, I>(dp: I) -> impl Iterator<Item = DataPair<'a>>
+where
+    I: Iterator<Item = DataPair<'a>>,
+{
     let mut dp = dp;
     let mut heap: BinaryHeap<_> = (&mut dp).take(ENTRY_COUNT).map(Reverse).collect();
     let mut guard = &heap.peek().unwrap().0;
@@ -66,11 +72,14 @@ fn top_n_heap_neu<'a, I: Iterator<Item = DataPair<'a>>>(dp: I) -> Vec<DataPair<'
             guard = &heap.peek().unwrap().0;
         }
     }
-    heap.into_sorted_vec().into_iter().map(|e| e.0).collect()
+    heap.into_sorted_vec().into_iter().map(|e| e.0)
 }
 
-fn generate_html(data: Vec<DataPair>) -> String {
-    data.into_iter().fold(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#.to_string(), |s, x| {
+fn generate_html<'a, I>(data: I) -> String
+where
+    I: Iterator<Item = DataPair<'a>>,
+{
+    data.fold(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#.to_string(), |s, x| {
         s + &format!("<div><img src={} alt={}><p>Latitude : {}<br>Longitude : {}<br>Shot at {}</p></div>", x.geotag.get_url(x.id), x.id, x.geotag.latitude, x.geotag.longitude, chrono::NaiveDateTime::from_timestamp(x.geotag.time as i64, 0))
     }) + "</body></html>"
 }
@@ -105,10 +114,10 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
             geotag: &GEOTAGS.get().unwrap()[&id],
         });
 
-        let s = generate_html(match strat {
-            SortStrategy::VecSort => top_n_vec_sort(it),
-            SortStrategy::HeapNeu => top_n_heap_neu(it),
-        });
+        let s = match strat {
+            SortStrategy::VecSort => generate_html(top_n_vec_sort(it)),
+            SortStrategy::HeapNeu => generate_html(top_n_heap_neu(it)),
+        };
 
         #[cfg(feature = "cache")]
         {
