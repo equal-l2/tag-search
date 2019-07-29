@@ -6,6 +6,7 @@ use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::fmt::Write;
 
 use structs::*;
 use tag_geotag::*;
@@ -79,9 +80,21 @@ fn generate_html<'a, I>(data: I) -> String
 where
     I: Iterator<Item = DataPair<'a>>,
 {
-    data.fold(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#.to_string(), |s, x| {
-        s + &format!("<div><img src={} alt={}><p>Latitude : {}<br>Longitude : {}<br>Shot at {}</p></div>", x.geotag.get_url(x.id), x.id, x.geotag.latitude, x.geotag.longitude, chrono::NaiveDateTime::from_timestamp(x.geotag.time as i64, 0))
-    }) + "</body></html>"
+    let mut s = String::with_capacity(18600);
+    s.push_str(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#);
+    for d in data {
+        write!(
+            s,
+            "<div><img src={} alt={}><p>Latitude : {}<br>Longitude : {}<br>Shot at {}</p></div>",
+            d.geotag.get_url(d.id),
+            d.id,
+            d.geotag.latitude,
+            d.geotag.longitude,
+            chrono::NaiveDateTime::from_timestamp(d.geotag.time as i64, 0)
+        );
+    }
+    s.push_str("</body></html>");
+    s
 }
 
 fn query(q: web::Query<QueryWrap>) -> HttpResponse {
