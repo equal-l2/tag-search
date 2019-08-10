@@ -12,6 +12,9 @@ fn main() {
         std::process::exit(1);
     }
     let tag = tag.unwrap();
+    if tag.is_empty() {
+        return;
+    }
 
     let tag_re = Regex::new(&format!(r"^(\d{{0,10}}),{}$", tag)).unwrap();
     let f = std::fs::File::open(&format!("{}/tag.csv", BASEDIR)).unwrap();
