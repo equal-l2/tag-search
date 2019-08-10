@@ -1,23 +1,17 @@
-use regex::Regex;
 use std::io::BufRead;
 use std::io::Write;
-
-const BASEDIR: &str = "/home/pi/last-data";
 
 type HashSet<K> = rustc_hash::FxHashSet<K>;
 
 fn main() {
-    let tag = std::env::args().nth(1);
-    if tag.is_none() {
-        std::process::exit(1);
-    }
-    let tag = tag.unwrap();
+    let mut args = std::env::args().skip(1);
+    let basedir = args.next().unwrap();
+    let tag = args.next().unwrap();
     if tag.is_empty() {
         return;
     }
 
-    let tag_re = Regex::new(&format!(r"^(\d{{0,10}}),{}$", tag)).unwrap();
-    let f = std::fs::File::open(&format!("{}/tag.csv", BASEDIR)).unwrap();
+    let f = std::fs::File::open(&format!("{}/tag.csv", basedir)).unwrap();
     let r = std::io::BufReader::new(f);
 
     let mut ids: HashSet<u64> = r
@@ -27,8 +21,11 @@ fn main() {
             if s.ends_with('\n') {
                 s.pop();
             }
-            if let Some(i) = tag_re.captures(&s) {
-                i.get(1).unwrap().as_str().parse().ok()
+            let mut sp = s.split(',');
+            let id_str = sp.next().unwrap();
+            let tag_str = sp.next().unwrap();
+            if tag == tag_str {
+                id_str.parse().ok()
             } else {
                 None
             }
@@ -41,7 +38,7 @@ fn main() {
 
     eprintln!("{} ids found", ids.len());
 
-    let f = std::fs::File::open(&format!("{}/geotag.csv", BASEDIR)).unwrap();
+    let f = std::fs::File::open(&format!("{}/geotag.csv", basedir)).unwrap();
     let r = std::io::BufReader::new(f);
 
     let stdout = std::io::stdout();
