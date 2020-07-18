@@ -4,6 +4,10 @@
 
     $ tag-search <tag_pp.csv/geotag_pp.csvのあるディレクトリ>
 
+## Disclaimer
+自分がやったときと`tag.csv`,`geotag.csv`の内容が変わってるかもしれないので、そうなってたらたぶん何もうまくいきません  
+自己責任でよろしく  
+
 ## コンパイルの仕方
 これと `tag-geotag` を同じフォルダにクローン(下記参照)してから、Cargoでビルド
 ```
