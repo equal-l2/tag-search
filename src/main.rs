@@ -145,10 +145,14 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
     response.body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
 }
 
-fn main() {
+#[actix_rt::main]
+async fn main() {
     // parse args
     let mut args = std::env::args().skip(1);
-    let _ = load::BASE_DIR.set(args.next().unwrap());
+    let _ = load::BASE_DIR.set(args.next().expect("Base directory is required as 1st arg"));
+
+    // get count of worker
+    // If not specified, use count of cpus
     let worker_num = {
         let n = args.next();
         if n.is_none() {
@@ -191,5 +195,6 @@ fn main() {
     .workers(worker_num)
     .bind(bind_addr)
     .unwrap()
-    .run();
+    .run()
+    .await;
 }
