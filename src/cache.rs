@@ -1,4 +1,10 @@
+use once_cell::sync::Lazy;
 use std::collections::VecDeque;
+use std::sync::RwLock;
+
+const CACHE_LENGTH: usize = 100;
+
+static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| RwLock::new(Cache::new(CACHE_LENGTH)));
 
 pub struct CacheWrap {
     pub tag: String,
@@ -8,6 +14,18 @@ pub struct CacheWrap {
 pub struct Cache {
     data: VecDeque<CacheWrap>,
     capacity: usize,
+}
+
+pub fn init() {
+    Lazy::force(&CACHE);
+}
+
+pub fn get_cache(tag: &str) -> Option<String> {
+    CACHE.read().unwrap().get_cache(&tag)
+}
+
+pub fn push_cache(tag: &str, entry: &str) {
+    CACHE.write().unwrap().push_cache(tag, entry)
 }
 
 impl Cache {

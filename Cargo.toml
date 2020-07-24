@@ -8,26 +8,18 @@ edition = "2018"
 
 [dependencies]
 regex = "*"
-chrono = "*"
+chrono = {version = "*", default-features = false}
 once_cell = "*"
 rustc-hash = "*"
-num_cpus = "*"
 tag-geotag = {path = "../tag-geotag"}
 actix-rt = "1"
+actix-web = {version = "2", default-features = false}
 
 [dependencies.serde]
 version = "*"
 default-features = false
-features = ["std", "derive"]
-
-[dependencies.actix-web]
-version = "2"
-default-features = false
-
-[dependencies.parking_lot]
-version = "*"
-optional = true
+features = ["derive"]
 
 [features]
 default = []
-cache = ["parking_lot"]
+cache = []
