@@ -15,7 +15,6 @@ static GEOTAGS: OnceCell<load::GeoTagsTable> = OnceCell::new();
 #[derive(serde::Deserialize, Clone, Debug)]
 struct QueryWrap {
     tag: String,
-    #[cfg(feature = "cache")]
     cache: Option<bool>,
 }
 
@@ -45,41 +44,60 @@ where
     s
 }
 
+// SAFETY: tag always exists
+#[cfg(feature = "cache")]
+fn query_cache(tag: &str) -> String {
+    let cont = &cache::CACHE;
+    loop {
+        if let Some(i) = cont.read().unwrap().get(tag) {
+            return i.content.clone();
+        }
+        if let Ok(mut lock) = cont.try_write() {
+            let s = query_normal(tag);
+            lock.push(cache::Cache {
+                tag: tag.to_owned(),
+                content: s.clone(),
+            });
+            return s;
+        }
+    }
+}
+
+// SAFETY: tag always exists
+fn query_normal(tag: &str) -> String {
+    let (tags, geotags) = unsafe {
+        // SAFETY: this function is never called before the server is launched
+        (TAGS.get_unchecked(), GEOTAGS.get_unchecked())
+    };
+    let pairs = tags.get(tag).unwrap().iter().map(|id| DataPair {
+        id: *id,
+        geotag: &geotags[&id],
+    });
+    generate_html(pairs)
+}
+
 fn query(q: web::Query<QueryWrap>) -> HttpResponse {
-    let tag = &q.tag;
+    let tags = unsafe {
+        // SAFETY: this function is never called before the server is launched
+        TAGS.get_unchecked()
+    };
+
     let mut response = HttpResponse::Ok();
     response.content_type("text/html");
 
-    #[cfg(feature = "cache")]
-    let use_cache = q.cache.unwrap_or(true);
-    #[cfg(feature = "cache")]
-    {
-        if use_cache {
-            if let Some(i) = cache::get_cache(&tag) {
-                return response.body(i);
-            }
-        }
-    }
-
-    if let Some(i) = TAGS.get().unwrap().get(tag) {
-        let it = i.iter().map(|id| DataPair {
-            id: *id,
-            geotag: &GEOTAGS.get().unwrap()[&id],
-        });
-
-        let s = generate_html(it);
-
+    if tags.contains_key(&q.tag) {
         #[cfg(feature = "cache")]
         {
+            let use_cache = q.cache.unwrap_or(true);
             if use_cache {
-                cache::push_cache(tag, &s);
+                return response.body(query_cache(&q.tag))
             }
         }
 
-        return response.body(s);
+        response.body(query_normal(&q.tag))
+    } else {
+        response.body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
     }
-
-    response.body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
 }
 
 #[actix_rt::main]

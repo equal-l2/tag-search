@@ -2,17 +2,17 @@ use once_cell::sync::Lazy;
 use std::collections::VecDeque;
 use std::sync::RwLock;
 
-const CACHE_LENGTH: usize = 100;
+pub const CACHE_LENGTH: usize = 100;
 
-static CACHE: Lazy<RwLock<Cache>> = Lazy::new(|| RwLock::new(Cache::new(CACHE_LENGTH)));
+pub static CACHE: Lazy<RwLock<CacheContainer>> = Lazy::new(|| RwLock::new(CacheContainer::new(CACHE_LENGTH)));
 
-pub struct CacheWrap {
+pub struct Cache {
     pub tag: String,
     pub content: String,
 }
 
-pub struct Cache {
-    data: VecDeque<CacheWrap>,
+pub struct CacheContainer {
+    data: VecDeque<Cache>,
     capacity: usize,
 }
 
@@ -20,36 +20,25 @@ pub fn init() {
     Lazy::force(&CACHE);
 }
 
-pub fn get_cache(tag: &str) -> Option<String> {
-    CACHE.read().unwrap().get_cache(&tag)
-}
-
-pub fn push_cache(tag: &str, entry: &str) {
-    CACHE.write().unwrap().push_cache(tag, entry)
-}
-
-impl Cache {
+impl CacheContainer {
     pub fn new(capacity: usize) -> Self {
-        Cache {
+        CacheContainer {
             data: VecDeque::with_capacity(capacity),
             capacity: capacity,
         }
     }
 
-    pub fn get_cache(&self, tag: &str) -> Option<String> {
+    pub fn get(&self, tag: &str) -> Option<&Cache> {
         self.data
             .iter()
             .find(|e| e.tag == tag)
-            .map(|cw| cw.content.clone())
     }
 
-    pub fn push_cache(&mut self, tag: &str, entry: &str) {
+    pub fn push(&mut self, c: Cache) {
+        println!("New tag in cache: {}", c.tag);
         if self.data.len() == self.capacity {
             self.data.pop_front();
         }
-        self.data.push_back(CacheWrap {
-            tag: tag.to_owned(),
-            content: entry.to_owned(),
-        });
+        self.data.push_back(c);
     }
 }
