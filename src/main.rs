@@ -2,9 +2,7 @@ mod load;
 
 use actix_web::{web, HttpResponse};
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
 use std::fmt::Write;
-use std::path::PathBuf;
 
 use tag_geotag::*;
 
@@ -14,7 +12,7 @@ mod cache;
 static TAGS: OnceCell<load::TagsTable> = OnceCell::new();
 static GEOTAGS: OnceCell<load::GeoTagsTable> = OnceCell::new();
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(serde::Deserialize, Clone, Debug)]
 struct QueryWrap {
     tag: String,
     #[cfg(feature = "cache")]
@@ -88,7 +86,8 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
 async fn main() {
     // parse args
     let mut args = std::env::args().skip(1);
-    let base_dir = PathBuf::from(args.next().expect("Base directory is required as 1st arg"));
+    let base_dir =
+        std::path::PathBuf::from(args.next().expect("Base directory is required as 1st arg"));
 
     // initialize global variables
     println!("Now loading... (Wait patiently)");
