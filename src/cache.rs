@@ -45,8 +45,8 @@ impl CacheContainer {
         }
     }
 
-    pub fn get(&self, tag: &str) -> Option<String> {
-        self.data.get(tag).map(|c| unsafe { &**c }.content.clone())
+    pub fn get(&self, tag: &str) -> Option<&String> {
+        self.data.get(tag).map(|c| &unsafe { &**c }.content)
     }
 
     /// Add a new element to the cache, and also removes the oldest element

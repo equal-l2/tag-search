@@ -25,7 +25,7 @@ pub struct DataPair<'a> {
     pub geotag: &'a GeoTag,
 }
 
-fn generate_html<'a, I>(data: I) -> String
+fn generate_html_from_iter<'a, I>(data: I) -> String
 where
     I: Iterator<Item = DataPair<'a>>,
 {
@@ -48,22 +48,26 @@ where
 
 // SAFETY: tag always exists
 #[cfg(feature = "cache")]
-fn query_cache(tag: &str) -> String {
+fn handle_cache(tag: &str) -> HttpResponse {
+    let mut response = HttpResponse::Ok();
+    response.content_type("text/html");
+
     let cont = &cache::CACHE;
     loop {
         if let Some(i) = cont.read().get(tag) {
-            return i.clone();
+            return response.body(i);
         }
         if let Some(mut lock) = cont.try_write() {
-            let s = query_normal(tag);
-            lock.push(tag.to_owned(), s.clone());
-            return s;
+            let s = generate(tag);
+            let res = response.body(&s);
+            lock.push(tag.to_owned(), s);
+            return res;
         }
     }
 }
 
 // SAFETY: tag always exists
-fn query_normal(tag: &str) -> String {
+fn generate(tag: &str) -> String {
     let (tags, geotags) = unsafe {
         // SAFETY: this function is never called before the server is launched
         (TAGS.get_unchecked(), GEOTAGS.get_unchecked())
@@ -72,7 +76,7 @@ fn query_normal(tag: &str) -> String {
         id: *id,
         geotag: &geotags[&id],
     });
-    generate_html(pairs)
+    generate_html_from_iter(pairs)
 }
 
 fn query(q: web::Query<QueryWrap>) -> HttpResponse {
@@ -81,21 +85,20 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
         TAGS.get_unchecked()
     };
 
-    let mut response = HttpResponse::Ok();
-    response.content_type("text/html");
-
     if tags.contains_key(&q.tag) {
         #[cfg(feature = "cache")]
         {
             let use_cache = q.cache.unwrap_or(true);
             if use_cache {
-                return response.body(query_cache(&q.tag));
+                return handle_cache(&q.tag);
             }
         }
 
-        response.body(query_normal(&q.tag))
+        let mut response = HttpResponse::Ok();
+        response.content_type("text/html").body(generate(&q.tag))
     } else {
-        response.body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
+        let mut response = HttpResponse::Ok();
+        response.content_type("text/html").body(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body><p>No Match</p></body></html>"#)
     }
 }
 
