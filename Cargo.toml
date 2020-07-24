@@ -7,12 +7,13 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-chrono = {version = "*", default-features = false}
-once_cell = "*"
+chrono = { version = "*", default-features = false }
+once_cell = { version = "*", features = ["parking_lot"] }
 rustc-hash = "*"
-tag-geotag = {path = "../tag-geotag"}
+tag-geotag = { path = "../tag-geotag"}
 actix-rt = "1"
-actix-web = {version = "2", default-features = false}
+actix-web = { version = "2", default-features = false }
+parking_lot = { version = "*", optional = true }
 
 [dependencies.serde]
 version = "*"
@@ -21,4 +22,4 @@ features = ["derive"]
 
 [features]
 default = []
-cache = []
+cache = ["parking_lot"]

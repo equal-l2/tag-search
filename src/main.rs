@@ -9,6 +9,8 @@ use tag_geotag::*;
 #[cfg(feature = "cache")]
 mod cache;
 
+pub type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
+
 static TAGS: OnceCell<load::TagsTable> = OnceCell::new();
 static GEOTAGS: OnceCell<load::GeoTagsTable> = OnceCell::new();
 
@@ -49,15 +51,12 @@ where
 fn query_cache(tag: &str) -> String {
     let cont = &cache::CACHE;
     loop {
-        if let Some(i) = cont.read().unwrap().get(tag) {
-            return i.content.clone();
+        if let Some(i) = cont.read().get(tag) {
+            return i.clone();
         }
-        if let Ok(mut lock) = cont.try_write() {
+        if let Some(mut lock) = cont.try_write() {
             let s = query_normal(tag);
-            lock.push(cache::Cache {
-                tag: tag.to_owned(),
-                content: s.clone(),
-            });
+            lock.push(tag.to_owned(), s.clone());
             return s;
         }
     }
@@ -90,7 +89,7 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
         {
             let use_cache = q.cache.unwrap_or(true);
             if use_cache {
-                return response.body(query_cache(&q.tag))
+                return response.body(query_cache(&q.tag));
             }
         }
 

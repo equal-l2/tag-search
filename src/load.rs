@@ -1,8 +1,7 @@
+use crate::HashMap;
 use std::io::BufRead;
 use std::path::Path;
 use tag_geotag::*;
-
-pub type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
 
 // # of entries in TagsTable
 pub const TAGS_SIZE: usize = 860621;
