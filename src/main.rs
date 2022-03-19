@@ -14,7 +14,7 @@ pub type HashMap<K, V> = rustc_hash::FxHashMap<K, V>;
 static TAGS: OnceCell<load::TagsTable> = OnceCell::new();
 static GEOTAGS: OnceCell<load::GeoTagsTable> = OnceCell::new();
 
-#[derive(serde::Deserialize, Clone, Debug)]
+#[derive(serde::Deserialize, Debug)]
 struct QueryWrap {
     tag: String,
     #[cfg(feature = "cache")]
@@ -80,7 +80,7 @@ fn generate(tag: &str) -> String {
     generate_html_from_iter(pairs)
 }
 
-fn query(q: web::Query<QueryWrap>) -> HttpResponse {
+async fn query(q: web::Query<QueryWrap>) -> HttpResponse {
     let tags = unsafe {
         // SAFETY: this function is never called before the server is launched
         TAGS.get_unchecked()
@@ -103,7 +103,7 @@ fn query(q: web::Query<QueryWrap>) -> HttpResponse {
     }
 }
 
-#[actix_rt::main]
+#[actix_web::main]
 async fn main() {
     // parse args
     let mut args = std::env::args().skip(1);
