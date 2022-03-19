@@ -17,6 +17,7 @@ static GEOTAGS: OnceCell<load::GeoTagsTable> = OnceCell::new();
 #[derive(serde::Deserialize, Clone, Debug)]
 struct QueryWrap {
     tag: String,
+    #[cfg(feature = "cache")]
     cache: Option<bool>,
 }
 
