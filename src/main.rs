@@ -30,6 +30,12 @@ fn generate_html_from_iter<'a, I>(data: I) -> String
 where
     I: Iterator<Item = DataPair<'a>>,
 {
+    static FORMAT: once_cell::sync::Lazy<Vec<time::format_description::FormatItem<'_>>> =
+        once_cell::sync::Lazy::new(|| {
+            time::format_description::parse("[year]-[month]-[day] [hour]:[minute]:[second]")
+                .expect("bad time format")
+        });
+
     let mut s = String::with_capacity(18600);
     s.push_str(r#"<!doctype html><html><head><title>超高性能化</title><meta charset="utf-8"></head><body>"#);
     for d in data {
@@ -40,7 +46,10 @@ where
             d.id,
             d.geotag.latitude,
             d.geotag.longitude,
-            chrono::NaiveDateTime::from_timestamp(d.geotag.time as i64, 0)
+            time::OffsetDateTime::from_unix_timestamp(d.geotag.time as i64)
+                .expect("timestamp out of range")
+                .format(&FORMAT)
+                .unwrap()
         );
     }
     s.push_str("</body></html>");
